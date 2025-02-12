@@ -1,0 +1,22 @@
+src/
+├── client
+│   ├── Client.java
+│   ├── ClientListener.java
+│   ├── ClientMain.java
+│   └── ClientReaderThread.java
+├── gui
+│   └── GUIMain.java
+├── resources
+│   └── Protocol.java
+└── server
+    ├── Board.java
+    ├── BufferedReaderWrapper.java
+    ├── ClientHandler.java
+    ├── Coordinate.java
+    ├── GameServer.java
+    ├── Player.java
+    ├── PrintWriterWrapper.java
+    ├── ServerMain.java
+    ├── Ship.java
+    ├── ShotResult.java
+    └── ShotResultType.java

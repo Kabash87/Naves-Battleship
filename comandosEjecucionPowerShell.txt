@@ -1,0 +1,5 @@
+Get-ChildItem -Path src -Recurse -Filter *.java | ForEach-Object { $_.FullName } > sources.txt
+javac -d bin $(Get-Content sources.txt)
+
+java -cp bin server.ServerMain
+java -cp bin client.ClientMain
