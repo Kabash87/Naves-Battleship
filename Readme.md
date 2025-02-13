@@ -39,7 +39,7 @@ src/
 ```
 
 ## Compilación y Ejecución
-Para compilar y ejecutar el proyecto, sigue estos pasos en PowerShell:
+Para compilar y ejecutar el proyecto, sigue estos pasos en PowerShell (Windows 10) o Terminal (Windows 11) desde la carpeta raíz del Proyecto:
 
 ### 1. Generar la lista de archivos Java
 ```powershell
