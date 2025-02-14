@@ -3,6 +3,7 @@ package client;
 import gui.GUIMain;
 
 public class ClientMain {
+    //Configuracion basica de los clientes
     public static void main(String[] args) {
         // Se conecta al servidor (por ejemplo, localhost en puerto 12345)
         Client client = new Client("localhost", 12345);

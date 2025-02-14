@@ -63,11 +63,11 @@ public class GameServer {
 
             // Espera a que se conecten al menos dos jugadores
             while (players.size() < 2) {
-                Thread.sleep(500);
+                Thread.sleep(30000);
             }
 
             System.out.println("Se han registrado al menos 2 jugadores. Iniciando periodo de registro de 30 segundos.");
-            Thread.sleep(30000);  // 30 segundos para más registros
+            Thread.sleep(5000);  // 30 segundos para más registros
             accepting = false;
             serverSocket.close();
             System.out.println("Fin del periodo de registro. Total jugadores: " + players.size());
@@ -85,6 +85,14 @@ public class GameServer {
                 String posMsg = board.getPositionsMessage(player.getUsername());
                 player.getOut().println(posMsg);
             }
+
+            for (int i = 0; i < players.size(); i++) {
+                Player sender = players.get(i);
+                Player receiver = players.get((i - 1 + players.size()) % players.size());
+                String senderPosMsg = sender.getBoard().getPositionsMessage(sender.getUsername());
+                receiver.getOut().println(Protocol.POSITION_RIVAL + senderPosMsg);
+            }
+
 
             // Notifica el inicio de partida
             broadcastMessage(Protocol.START_GAME);
