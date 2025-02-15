@@ -1,6 +1,8 @@
+// src/server/GameServer.java
 package server;
 
 import resources.Protocol;
+import gui.GUIServer;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -13,17 +15,24 @@ public class GameServer {
     private List<Player> players;
     private ServerSocket serverSocket;
     private boolean accepting = true;
+    private GUIServer guiServer; // Reference to GUIServer
 
-    public GameServer(int port) {
+    public GameServer(int port, GUIServer guiServer) {
         this.port = port;
+        this.guiServer = guiServer; // Initialize GUIServer reference
         clients = new ArrayList<>();
         players = new ArrayList<>();
+    }
+
+    public void setGuiServer(GUIServer guiServer) {
+        this.guiServer = guiServer;
     }
 
     public void start() {
         try {
             serverSocket = new ServerSocket(port);
             System.out.println("Servidor iniciado en puerto " + port);
+            guiServer.onMessageReceived("Servidor iniciado en puerto " + port); // Update GUI
 
             // Thread para aceptar conexiones
             new Thread(() -> {
@@ -31,6 +40,7 @@ public class GameServer {
                     while (accepting) {
                         Socket socket = serverSocket.accept();
                         System.out.println("Nueva conexión: " + socket.getInetAddress());
+                        guiServer.onMessageReceived("Nueva conexión: " + socket.getInetAddress()); // Update GUI
 
                         BufferedReaderWrapper reader = new BufferedReaderWrapper(socket);
                         PrintWriterWrapper writer = new PrintWriterWrapper(socket);
@@ -46,6 +56,7 @@ public class GameServer {
                             clients.add(handler);
                             handler.start();
                             System.out.println("Registrado: " + username);
+                            guiServer.onMessageReceived("Registrado: " + username); // Update GUI
                         } else {
                             socket.close();
                         }
@@ -53,6 +64,7 @@ public class GameServer {
                 } catch (SocketException se) {
                     if (!accepting) {
                         System.out.println("Servidor: Socket cerrado correctamente, fin de registro.");
+                        guiServer.onMessageReceived("Servidor: Socket cerrado correctamente, fin de registro."); // Update GUI
                     } else {
                         se.printStackTrace();
                     }
@@ -63,14 +75,16 @@ public class GameServer {
 
             // Espera a que se conecten al menos dos jugadores
             while (players.size() < 2) {
-                Thread.sleep(30000);
+                Thread.sleep(500);
             }
 
             System.out.println("Se han registrado al menos 2 jugadores. Iniciando periodo de registro de 30 segundos.");
-            Thread.sleep(5000);  // 30 segundos para más registros
+            guiServer.onMessageReceived("Se han registrado al menos 2 jugadores. Iniciando periodo de registro de 10 segundos."); // Update GUI
+            Thread.sleep(10000);  // 10 segundos para más registros
             accepting = false;
             serverSocket.close();
             System.out.println("Fin del periodo de registro. Total jugadores: " + players.size());
+            guiServer.onMessageReceived("Fin del periodo de registro. Total jugadores: " + players.size()); // Update GUI
 
             // Calcula el tamaño del tablero según el número de jugadores
             int boardSize = calculateBoardSize(players.size());
@@ -78,21 +92,16 @@ public class GameServer {
             // Asigna un tablero a cada jugador, y envía al cliente el mensaje de tablero y posiciones
             for (Player player : players) {
                 Board board = new Board(boardSize);
+                Board ownBoard = new Board(boardSize);
+
                 player.setBoard(board);
                 // Envía mensaje: "#TAB,n#"
                 player.getOut().println(Protocol.BOARD_PREFIX + boardSize + Protocol.BOARD_SUFFIX);
                 // Envía posiciones de barcos
                 String posMsg = board.getPositionsMessage(player.getUsername());
                 player.getOut().println(posMsg);
+                guiServer.updateBoard(board, ownBoard, player.getUsername()); // Update GUI
             }
-
-            for (int i = 0; i < players.size(); i++) {
-                Player sender = players.get(i);
-                Player receiver = players.get((i - 1 + players.size()) % players.size());
-                String senderPosMsg = sender.getBoard().getPositionsMessage(sender.getUsername());
-                receiver.getOut().println(Protocol.POSITION_RIVAL + senderPosMsg);
-            }
-
 
             // Notifica el inicio de partida
             broadcastMessage(Protocol.START_GAME);
@@ -121,6 +130,7 @@ public class GameServer {
                 p.getOut().println(msg);
             }
         }
+        guiServer.onMessageReceived(msg); // Update GUI
     }
 
     private void runGameLoop() {
@@ -140,11 +150,19 @@ public class GameServer {
             String turnMessage = Protocol.TURN_PREFIX + "30";
             attacker.getOut().println(turnMessage);
 
+            // Notifica a los demás jugadores que están esperando
+            for (Player player : players) {
+                if (!player.equals(attacker) && player.isActive()) {
+                    player.getOut().println("Esperando al movimiento del " + attacker.getUsername()+ "...");
+                }
+            }
+
             // Obtiene el ClientHandler correspondiente
             ClientHandler handler = getClientHandler(attacker);
             String shotMsg = handler.waitForShot(30);
             if (shotMsg == null) {
                 System.out.println(attacker.getUsername() + " no respondió a tiempo. Turno perdido.");
+                guiServer.onMessageReceived(attacker.getUsername() + " no respondió a tiempo. Turno perdido."); // Update GUI
                 currentIndex = (currentIndex + 1) % players.size();
                 continue;
             }
@@ -161,10 +179,13 @@ public class GameServer {
             ShotResult result = target.getBoard().checkShot(shotCoord);
             if (result.getResult() == ShotResultType.AGUA) {
                 attacker.getOut().println(Protocol.AGUA);
+                guiServer.onMessageReceived(attacker.getUsername() + " ha obtenido: AGUA"); // Update GUI
             } else if (result.getResult() == ShotResultType.TOCADO) {
                 attacker.getOut().println(Protocol.TOCADO);
+                guiServer.onMessageReceived(attacker.getUsername() + " ha obtenido: TOCADO"); // Update GUI
             } else if (result.getResult() == ShotResultType.HUNDIDO) {
                 attacker.getOut().println(Protocol.HUNDIDO);
+                guiServer.onMessageReceived(attacker.getUsername() + " ha obtenido: HUNDIDO"); // Update GUI
                 // Notifica a todos el hundimiento del barco: "#BARCO,TAMAÑO,USUARIO#"
                 String sunkMsg = Protocol.BARCO + "," + result.getShipLength() + "," + target.getUsername() + Protocol.BOARD_SUFFIX;
                 broadcastMessage(sunkMsg);
@@ -176,6 +197,8 @@ public class GameServer {
                 String finMsg = Protocol.FIN + target.getUsername() + Protocol.BOARD_SUFFIX;
                 broadcastMessage(finMsg);
             }
+
+            guiServer.updateBoard(target.getBoard(), attacker.getBoard(), target.getUsername()); // Update GUI
 
             currentIndex = (currentIndex + 1) % players.size();
         }
@@ -193,6 +216,7 @@ public class GameServer {
             broadcastMessage(winMsg);
         }
         System.out.println("Juego finalizado.");
+        guiServer.onMessageReceived("Juego finalizado."); // Update GUI
     }
 
     private int activePlayers() {

@@ -1,7 +1,5 @@
 package server;
 
-import resources.Protocol;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -9,10 +7,14 @@ import java.util.Random;
 public class Board {
     private int size;
     private List<Ship> ships;
+    private boolean[][] hits;
+    private boolean[][] misses;
 
     public Board(int size) {
         this.size = size;
         this.ships = new ArrayList<>();
+        this.hits = new boolean[size][size];
+        this.misses = new boolean[size][size];
         placeShipsRandomly();
     }
 
@@ -20,11 +22,31 @@ public class Board {
         return size;
     }
 
-    public List<Ship> getShips() {
-        return ships;
+    public boolean isShipAt(int row, int col) {
+        for (Ship ship : ships) {
+            if (ship.contains(new Coordinate(row, col))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    // Coloca aleatoriamente: 1 barco de longitud 4, 2 de longitud 3 y 1 de longitud 2
+    public boolean isHitAt(int row, int col) {
+        return hits[row][col];
+    }
+
+    public boolean isMissAt(int row, int col) {
+        return misses[row][col];
+    }
+
+    public void recordHit(int row, int col) {
+        hits[row][col] = true;
+    }
+
+    public void recordMiss(int row, int col) {
+        misses[row][col] = true;
+    }
+
     private void placeShipsRandomly() {
         int[] shipLengths = {4, 3, 3, 2};
         for (int len : shipLengths) {
@@ -50,7 +72,6 @@ public class Board {
             newCoords.add(new Coordinate(r, c));
         }
 
-        // Comprobar que no se superpongan con otros barcos
         for (Ship ship : ships) {
             for (Coordinate coord : ship.getCoordinates()) {
                 for (Coordinate newCoord : newCoords) {
@@ -65,11 +86,11 @@ public class Board {
         return true;
     }
 
-    // Comprueba el tiro recibido y devuelve el resultado (AGUA, TOCADO o HUNDIDO)
     public ShotResult checkShot(Coordinate coord) {
         for (Ship ship : ships) {
             if (!ship.isSunk() && ship.contains(coord)) {
                 ship.hit(coord);
+                recordHit(coord.getRow(), coord.getCol());
                 if (ship.isSunk()) {
                     return new ShotResult(ShotResultType.HUNDIDO, ship.getLength());
                 } else {
@@ -77,6 +98,7 @@ public class Board {
                 }
             }
         }
+        recordMiss(coord.getRow(), coord.getCol());
         return new ShotResult(ShotResultType.AGUA, 0);
     }
 
@@ -89,10 +111,9 @@ public class Board {
         return true;
     }
 
-    // Genera la cadena de posiciones de barcos que se enviará al cliente.
     public String getPositionsMessage(String username) {
         StringBuilder sb = new StringBuilder();
-        sb.append(Protocol.POSITION_PREFIX);
+        sb.append("#POS,");
         boolean firstShip = true;
         for (Ship ship : ships) {
             if (!firstShip) {
@@ -104,7 +125,7 @@ public class Board {
                         .append(",").append(coord.getCol() + 1).append(")");
             }
         }
-        sb.append(Protocol.BOARD_SUFFIX);
+        sb.append("#");
         return sb.toString();
     }
 
