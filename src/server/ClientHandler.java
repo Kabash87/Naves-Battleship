@@ -32,7 +32,6 @@ public class ClientHandler extends Thread {
         out.println(msg);
     }
 
-    // Espera hasta timeoutSeconds segundos a que el cliente envíe un mensaje de tiro.
     public String waitForShot(int timeoutSeconds) {
         long endTime = System.currentTimeMillis() + timeoutSeconds * 1000;
         try {

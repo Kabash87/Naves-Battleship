@@ -13,6 +13,7 @@ public class Protocol {
     // Mensaje de posiciones de barcos (se envía la cadena con todas las posiciones)
     // Ejemplo: "#POS%(A,1)(A,2)(A,3)(A,4), ...#"
     public static final String POSITION_PREFIX = "#POS%";
+    public static final String POSITION_BARCO = "#POSBARCO%";
     public static final String POSITION_RIVAL = "RIVAL";
 
     // Mensaje de inicio de partida

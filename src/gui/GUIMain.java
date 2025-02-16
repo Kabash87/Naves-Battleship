@@ -8,7 +8,6 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
-import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import javax.sound.sampled.*;
@@ -22,11 +21,13 @@ import java.awt.Point;
 
 public class GUIMain extends JFrame implements ClientListener {
     private Client client;
+    private String nombre;
     private JTextArea textArea;
     private JPanel boardPanel;
     private int boardSize = 10;
     private boolean myTurn = false;
     private int lastShotRow = -1, lastShotCol = -1;
+    private String posicionesBarcos = null;
     private SoundManager soundManager;
     private JButton muteButton;
     private JSlider volumeSlider;
@@ -35,10 +36,11 @@ public class GUIMain extends JFrame implements ClientListener {
     private static final String AGUA_ICON_PATH = "/resources/agua.png";
     private static final String TOCADO_ICON_PATH = "/resources/tocado.png";
     private static final String HUNDIDO_ICON_PATH = "/resources/hundido.png";
+    private static final String TUBARCO_ICON_PATH = "/resources/tubarco.png";
 
     VictoryAnimation victoryAnimation = new VictoryAnimation();
+    DefeatAnimation defeatAnimation = new DefeatAnimation();
 
-    // Atributo para controlar el modo oscuro/claro
     private boolean darkMode = false;
 
     public GUIMain(Client client) {
@@ -62,6 +64,10 @@ public class GUIMain extends JFrame implements ClientListener {
         getLayeredPane().add(victoryAnimation, JLayeredPane.POPUP_LAYER);
         victoryAnimation.setSize(200, 100);
         victoryAnimation.setVisible(false);
+        
+        getLayeredPane().add(defeatAnimation, JLayeredPane.POPUP_LAYER);
+        defeatAnimation.setSize(200, 100);
+        defeatAnimation.setVisible(false);
 
         textArea = new JTextArea();
         textArea.setEditable(false);
@@ -75,10 +81,8 @@ public class GUIMain extends JFrame implements ClientListener {
         initializeBoard();
         mainPanel.add(boardPanel, BorderLayout.CENTER);
 
-        // 🔻 Panel superior para controles (música y tema) 🔻
         JPanel topPanel = new JPanel(new FlowLayout());
 
-        // Botón para controlar el sonido
         muteButton = new JButton("🔊");
         muteButton.addActionListener(e -> {
             soundManager.toggleMute();
@@ -86,7 +90,6 @@ public class GUIMain extends JFrame implements ClientListener {
         });
         topPanel.add(muteButton);
 
-        // Control deslizante para el volumen
         volumeSlider = new JSlider(0, 100, 50);
         volumeSlider.addChangeListener(e -> {
             float volume = volumeSlider.getValue() / 100f;
@@ -95,19 +98,16 @@ public class GUIMain extends JFrame implements ClientListener {
         topPanel.add(new JLabel("Volumen:"));
         topPanel.add(volumeSlider);
 
-        // Botón para alternar entre modo oscuro y claro
         JButton toggleThemeButton = new JButton("Modo Oscuro");
         toggleThemeButton.addActionListener(e -> {
             toggleTheme();
-            // Actualizamos el texto del botón según el modo actual
             toggleThemeButton.setText(darkMode ? "Modo Claro" : "Modo Oscuro");
         });
         topPanel.add(toggleThemeButton);
-
+        
         mainPanel.add(topPanel, BorderLayout.NORTH);
     }
 
-    // Método para alternar el tema de la interfaz
     private void toggleTheme() {
         darkMode = !darkMode;
         Color bg = darkMode ? Color.DARK_GRAY : Color.WHITE;
@@ -119,7 +119,7 @@ public class GUIMain extends JFrame implements ClientListener {
         boardPanel.setBackground(bg);
 
         for (Component comp : boardPanel.getComponents()) {
-            if (!(comp instanceof JButton)) { // Evitar modificar los botones
+            if (!(comp instanceof JButton)) {
                 comp.setBackground(bg);
                 comp.setForeground(fg);
             }
@@ -134,7 +134,7 @@ public class GUIMain extends JFrame implements ClientListener {
             for (int col = 0; col < boardSize; col++) {
                 JButton btn = new JButton();
                 btn.setFont(new Font("SansSerif", Font.BOLD, 12));
-                btn.setBackground(Color.LIGHT_GRAY); // Color fijo
+                btn.setBackground(Color.LIGHT_GRAY);
                 btn.setOpaque(true);
                 btn.setBorderPainted(false);
 
@@ -147,7 +147,8 @@ public class GUIMain extends JFrame implements ClientListener {
                         btn.setEnabled(false);
                         String msg = "#TIRO(" + convertRowToLetter(r) + "," + (c + 1) + ")#";
                         client.sendMessage(msg);
-                        appendMessage("Enviando tiro: " + msg);
+                        String msgCliente = "(" + convertRowToLetter(r) + "," + (c + 1) + ")";
+                        appendMessage("Enviando tiro: " + msgCliente);
                         myTurn = false;
                     } else {
                         appendMessage("No es tu turno.");
@@ -166,7 +167,6 @@ public class GUIMain extends JFrame implements ClientListener {
     }
 
     private void updateBoardSize(int newSize) {
-        boardSize = newSize;
         initializeBoard();
         appendMessage("Tamaño de tablero actualizado: " + newSize);
     }
@@ -192,7 +192,6 @@ public class GUIMain extends JFrame implements ClientListener {
                     icon = loadAndScaleIcon(AGUA_ICON_PATH, btnSize, btnSize);
                 } else if (result.equals("#TOCADO#") || result.equals("#HUNDIDO#")) {
                     posicionesTocadas.add(new Point(row, col));
-                    System.out.println(row + " " + col);
                     verificarSiBarcoHundido();
 
                     if (result.equals("#TOCADO#")) {
@@ -210,7 +209,7 @@ public class GUIMain extends JFrame implements ClientListener {
             }
         });
     }
-
+    
     private void cambiarIconoCasilla(int fila, int columna, String rutaIcono) {
         SwingUtilities.invokeLater(() -> {
             int index = fila * boardSize + columna;
@@ -227,6 +226,35 @@ public class GUIMain extends JFrame implements ClientListener {
             }
         });
     }
+    
+    private void actualizarCasillaComoPropia(int row, int col) {
+        SwingUtilities.invokeLater(() -> {
+            int index = row * boardSize + col;
+            Component comp = boardPanel.getComponent(index);
+            if (comp instanceof JButton) {
+                JButton btn = (JButton) comp;
+                int btnSize = Math.min(btn.getWidth(), btn.getHeight());
+                ImageIcon icon = loadAndScaleIcon(TUBARCO_ICON_PATH, btnSize, btnSize);
+                btn.setIcon(icon);
+                btn.setDisabledIcon(icon);
+                btn.setEnabled(false);
+            }
+        });
+    }
+    
+    private void procesarPosicionesPropias(String mensaje) {
+        mensaje = mensaje.replace("#POS%", "").replace("#", "");
+
+        Pattern coordinatePattern = Pattern.compile("\\((\\w),(\\d+)\\)");
+        Matcher matcher = coordinatePattern.matcher(mensaje);
+        
+        while (matcher.find()) {
+            char filaChar = matcher.group(1).charAt(0);
+            int fila = filaChar - 'A';
+            int columna = Integer.parseInt(matcher.group(2)) - 1;
+            actualizarCasillaComoPropia(fila, columna);
+        }
+    }
 
     private ImageIcon loadAndScaleIcon(String path, int width, int height) {
         try {
@@ -238,7 +266,7 @@ public class GUIMain extends JFrame implements ClientListener {
             return null;
         }
     }
-
+    
     private void actualizarCasillaComoHundida(int row, int col) {
         SwingUtilities.invokeLater(() -> {
             int index = row * boardSize + col;
@@ -246,8 +274,10 @@ public class GUIMain extends JFrame implements ClientListener {
 
             if (comp instanceof JButton) {
                 JButton btn = (JButton) comp;
+
                 int btnSize = Math.min(btn.getWidth(), btn.getHeight());
                 btn.setIcon(loadAndScaleIcon(HUNDIDO_ICON_PATH, btnSize, btnSize));
+
                 btn.setEnabled(false);
             }
         });
@@ -259,15 +289,15 @@ public class GUIMain extends JFrame implements ClientListener {
                 appendMessage("⚠️ Mensaje con formato incorrecto: " + mensaje);
                 return;
             }
-
+            
             mensaje = mensaje.replace("RIVAL#POS%", "").replace("#", "");
-            Pattern shipPattern = Pattern.compile("((?:\\(\\w,\\d+\\))+)");
+            Pattern shipPattern = Pattern.compile("((?:\\(\\w,\\d+\\))+)"); 
             Matcher shipMatcher = shipPattern.matcher(mensaje);
-
+            
             while (shipMatcher.find()) {
                 String grupoBarco = shipMatcher.group(1);
                 List<Point> coordenadas = new ArrayList<>();
-
+                
                 Matcher coordMatcher = Pattern.compile("\\((\\w),(\\d+)\\)").matcher(grupoBarco);
                 while (coordMatcher.find()) {
                     char filaChar = coordMatcher.group(1).charAt(0);
@@ -275,14 +305,13 @@ public class GUIMain extends JFrame implements ClientListener {
                     int columna = Integer.parseInt(coordMatcher.group(2)) - 1;
                     coordenadas.add(new Point(fila, columna));
                 }
-
+                
                 if (!coordenadas.isEmpty()) {
                     String nombreBarco = "Barco" + (barcos.size() + 1);
                     barcos.put(nombreBarco, coordenadas);
-                    appendMessage("✅ Barco registrado: " + nombreBarco + " -> " + coordenadas);
                 }
             }
-
+            
         } catch (Exception e) {
             appendMessage("❌ Error procesando posiciones de barcos: " + e.getMessage());
             e.printStackTrace();
@@ -326,7 +355,7 @@ public class GUIMain extends JFrame implements ClientListener {
         });
         timer.start();
     }
-
+    
     private void verificarSiBarcoHundido() {
         for (Map.Entry<String, List<Point>> entry : barcos.entrySet()) {
             String nombreBarco = entry.getKey();
@@ -340,23 +369,47 @@ public class GUIMain extends JFrame implements ClientListener {
             }
         }
     }
+    
+    private void convertirPosiciones(String mensaje) {
+        Pattern shipPattern = Pattern.compile("\\((\\w),(\\d+)\\)");
+        Matcher coordMatcher = shipPattern.matcher(mensaje);
+
+        while (coordMatcher.find()) {
+            char filaChar = coordMatcher.group(1).charAt(0);
+            int fila = filaChar - 'A';
+            int columna = Integer.parseInt(coordMatcher.group(2)) - 1;
+            updateButtonWithShotResult(fila, columna, "#HUNDIDO#");
+        }
+    }
 
     @Override
     public void onMessageReceived(String message) {
-        appendMessage("Servidor: " + message);
         if (message.startsWith("#TAB,")) {
-            try {
+        	try {
                 int start = message.indexOf(",") + 1;
                 int end = message.indexOf("#", start);
                 int size = Integer.parseInt(message.substring(start, end));
+                appendMessage("Tableto de " + size + " x " + size);
+                boardSize = size;
                 updateBoardSize(size);
+
+                if (posicionesBarcos != null && boardSize > 10) {
+                    procesarPosicionesPropias(posicionesBarcos);
+                    appendMessage("Tus barcos se han marcado en verde.");
+                    posicionesBarcos = null;
+                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
         } else if (message.startsWith("#POS%")) {
-            appendMessage("Posiciones de barcos recibidas.");
+        	posicionesBarcos = message;
+        	String[] data = message.split("%");
+            appendMessage("Tus barcos: " + data[1].substring(0, data[1].length() - 1));
+        } else if (message.startsWith("#REG_OK#")) {
+        	String[] data = message.split("#");
+        	nombre = data[2].trim();
+        	appendMessage("Jugador " + nombre + " registrado");
         } else if (message.startsWith("RIVAL#POS%")) {
-            appendMessage("Posiciones de barcos recibidas.");
             procesarPosicionesBarcos(message);
         } else if (message.equals("#INICIO#")) {
             appendMessage("El juego ha comenzado.");
@@ -368,12 +421,24 @@ public class GUIMain extends JFrame implements ClientListener {
             appendMessage("Resultado del tiro: " + message.replace("#", ""));
         } else if (message.startsWith("#BARCO,")) {
             appendMessage("Barco hundido: " + message);
+        } else if (message.startsWith("#POSBARCO%")) {
+        	message = message.replace("#POSBARCO%", "").replace("#", "");
+            convertirPosiciones(message);
         } else if (message.startsWith("#FIN#")) {
-            appendMessage("Jugador eliminado: " + message);
+            String[] data = message.split("#");
+            if (data[2].trim().equals(nombre)) {
+                defeatAnimation.startAnimation(this);
+                appendMessage("has sido eliminado");
+            } else
+            	appendMessage("El jugador " + data[2].trim() + " ha sido eliminado");
         } else if (message.startsWith("#GANADOR#")) {
-            appendMessage("Ganador: " + message);
-            victoryAnimation.startAnimation(this);
-        }
+            String[] data = message.split("#");
+            if (data[2].trim().equals(nombre)) {
+            	victoryAnimation.startAnimation(this);
+                appendMessage("¡¡¡HAS GANADO!!!");
+            } else
+                appendMessage("Ganador: " + data[2].trim());
+        }	
     }
 }
 
@@ -381,42 +446,36 @@ class SoundManager {
     private Clip clip;
     private FloatControl volumeControl;
     private boolean isMuted = false;
+    private float previousVolume = 0.5f;
 
     public SoundManager(String filePath) {
         try {
-            // Obtener la URL del recurso
             URL soundURL = getClass().getResource(filePath);
 
-            // Verificar si la URL es válida (archivo no encontrado)
             if (soundURL == null) {
                 throw new IllegalArgumentException("Archivo de sonido no encontrado: " + filePath);
             }
 
-            // Cargar el archivo de audio
             AudioInputStream audioStream = AudioSystem.getAudioInputStream(soundURL);
             clip = AudioSystem.getClip();
             clip.open(audioStream);
 
-            // Obtener el control de volumen
             volumeControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
 
-            // Establecer el volumen al 50% al inicio (ajustado a la mitad entre el mínimo y máximo)
             float min = volumeControl.getMinimum();
             float max = volumeControl.getMaximum();
-            volumeControl.setValue(min + (max - min) * 0.5f); // 50% de volumen al inicio
+            previousVolume = min + (max - min) * 0.5f;
+            volumeControl.setValue(previousVolume);
 
         } catch (UnsupportedAudioFileException | IOException | LineUnavailableException e) {
-            // Manejo de excepciones si ocurre algún error al cargar el archivo
             e.printStackTrace();
         } catch (IllegalArgumentException e) {
-            // Excepción personalizada si el archivo no se encuentra
             System.err.println(e.getMessage());
         }
     }
 
     public void play() {
         if (clip != null) {
-            // Reproducir el clip de audio en bucle
             clip.loop(Clip.LOOP_CONTINUOUSLY);
             clip.start();
         }
@@ -424,8 +483,12 @@ class SoundManager {
 
     public void toggleMute() {
         isMuted = !isMuted;
-        // Establecer el valor de volumen según si está silenciado o no
-        volumeControl.setValue(isMuted ? -80.0f : 0.0f);
+        if (isMuted) {
+            previousVolume = volumeControl.getValue();
+            volumeControl.setValue(-80.0f);
+        } else {
+            volumeControl.setValue(previousVolume);
+        }
     }
 
     public boolean isMuted() {
@@ -434,7 +497,6 @@ class SoundManager {
 
     public void setVolume(float volume) {
         if (volumeControl != null) {
-            // Establecer el volumen entre el mínimo y máximo
             float min = volumeControl.getMinimum();
             float max = volumeControl.getMaximum();
             volumeControl.setValue(min + (max - min) * volume);

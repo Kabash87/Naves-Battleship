@@ -1,11 +1,13 @@
 package server;
 
 import resources.Protocol;
+import gui.GUIServer;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 public class GameServer {
     private int port;
@@ -13,19 +15,26 @@ public class GameServer {
     private List<Player> players;
     private ServerSocket serverSocket;
     private boolean accepting = true;
+    private GUIServer guiServer;
+    private Board commonBoard;
 
-    public GameServer(int port) {
+    public GameServer(int port, GUIServer guiServer) {
         this.port = port;
+        this.guiServer = guiServer;
         clients = new ArrayList<>();
         players = new ArrayList<>();
+    }
+
+    public void setGuiServer(GUIServer guiServer) {
+        this.guiServer = guiServer;
     }
 
     public void start() {
         try {
             serverSocket = new ServerSocket(port);
             System.out.println("Servidor iniciado en puerto " + port);
+            guiServer.onMessageReceived("Servidor iniciado en puerto " + port);
 
-            // Thread para aceptar conexiones
             new Thread(() -> {
                 try {
                     while (accepting) {
@@ -36,10 +45,15 @@ public class GameServer {
                         PrintWriterWrapper writer = new PrintWriterWrapper(socket);
 
                         String regMsg = reader.readLine();
-                        if (regMsg != null && regMsg.equals(Protocol.REGISTRATION)) {
-                            writer.println(Protocol.REG_OK);
-                            // Asigna nombre automáticamente (Jugador1, Jugador2, …)
+                        if (regMsg != null && regMsg.startsWith(Protocol.REGISTRATION)) {
+                            System.out.println(regMsg);
+                            String[] parts = regMsg.split("#");
                             String username = "Jugador" + (players.size() + 1);
+                            if (parts.length > 2) {
+                                username = parts[2].trim();
+                                System.out.println("Nombre personalizado: " + username);
+                            }
+                            writer.println(Protocol.REG_OK + username);
                             Player player = new Player(username, socket, writer.getPrintWriter(), null);
                             players.add(player);
                             ClientHandler handler = new ClientHandler(socket, player);
@@ -61,44 +75,54 @@ public class GameServer {
                 }
             }).start();
 
-            // Espera a que se conecten al menos dos jugadores
             while (players.size() < 2) {
-                Thread.sleep(30000);
+                Thread.sleep(500);
             }
 
-            System.out.println("Se han registrado al menos 2 jugadores. Iniciando periodo de registro de 30 segundos.");
-            Thread.sleep(5000);  // 30 segundos para más registros
+            System.out.println("Se han registrado al menos 2 jugadores. Iniciando periodo de registro de 10 segundos.");
+            guiServer.onMessageReceived("Se han registrado al menos 2 jugadores. Iniciando periodo de registro de 10 segundos.");
+            Thread.sleep(10000);
             accepting = false;
             serverSocket.close();
             System.out.println("Fin del periodo de registro. Total jugadores: " + players.size());
+            guiServer.onMessageReceived("Fin del periodo de registro. Total jugadores: " + players.size());
 
-            // Calcula el tamaño del tablero según el número de jugadores
             int boardSize = calculateBoardSize(players.size());
 
-            // Asigna un tablero a cada jugador, y envía al cliente el mensaje de tablero y posiciones
-            for (Player player : players) {
-                Board board = new Board(boardSize);
-                player.setBoard(board);
-                // Envía mensaje: "#TAB,n#"
-                player.getOut().println(Protocol.BOARD_PREFIX + boardSize + Protocol.BOARD_SUFFIX);
-                // Envía posiciones de barcos
-                String posMsg = board.getPositionsMessage(player.getUsername());
-                player.getOut().println(posMsg);
+            if (players.size() == 2) {
+                for (Player player : players) {
+                    Board board = new Board(boardSize);
+                    player.setBoard(board);
+                    placeShipsForPlayer(board, player);
+                    player.getOut().println(Protocol.BOARD_PREFIX + boardSize + Protocol.BOARD_SUFFIX);
+                    String posMsg = board.getPositionsMessage(player.getUsername());
+                    player.getOut().println(posMsg);
+                }
+                for (int i = 0; i < players.size(); i++) {
+                    Player sender = players.get(i);
+                    Player receiver = players.get((i - 1 + players.size()) % players.size());
+                    String senderPosMsg = sender.getBoard().getPositionsMessage(sender.getUsername());
+                    receiver.getOut().println(Protocol.POSITION_RIVAL + senderPosMsg);
+                }
+            } else {
+                commonBoard = new Board(boardSize);
+                for (Player player : players) {
+                    placeShipsForPlayer(commonBoard, player);
+
+                    player.setBoard(commonBoard);
+                    String posMsg = commonBoard.getPlayerPositionsMessage(player.getUsername());
+                    player.getOut().println(posMsg);
+                }
+                broadcastMessage(Protocol.BOARD_PREFIX + boardSize + Protocol.BOARD_SUFFIX);
             }
 
-            for (int i = 0; i < players.size(); i++) {
-                Player sender = players.get(i);
-                Player receiver = players.get((i - 1 + players.size()) % players.size());
-                String senderPosMsg = sender.getBoard().getPositionsMessage(sender.getUsername());
-                receiver.getOut().println(Protocol.POSITION_RIVAL + senderPosMsg);
-            }
-
-
-            // Notifica el inicio de partida
             broadcastMessage(Protocol.START_GAME);
 
-            // Comienza la partida (se asume un juego free-for-all en turno rotativo)
-            runGameLoop();
+            if (commonBoard != null) {
+                runGameLoop(commonBoard);
+            } else {
+                runGameLoop(null);
+            }
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -111,7 +135,7 @@ public class GameServer {
         } else if (numPlayers == 3) {
             return 12;
         } else {
-            return 9 + numPlayers; // Por ejemplo, 4 jugadores -> 13, 5 -> 14, etc.
+            return 9 + numPlayers;
         }
     }
 
@@ -121,66 +145,128 @@ public class GameServer {
                 p.getOut().println(msg);
             }
         }
+        guiServer.onMessageReceived(msg);
     }
 
-    private void runGameLoop() {
-        int currentIndex = 0;
-        while (activePlayers() > 1) {
-            // El jugador que ataca
-            Player attacker = players.get(currentIndex);
-            if (!attacker.isActive()) {
-                currentIndex = (currentIndex + 1) % players.size();
-                continue;
+    /**
+     * Coloca aleatoriamente los barcos para el jugador en el tablero dado.
+     * Cada jugador tiene: un barco de tamaño 4, dos de tamaño 3 y uno de tamaño 2.
+     */
+    private void placeShipsForPlayer(Board board, Player player) {
+        int[] shipSizes = {4, 3, 3, 2};
+        Random rand = new Random();
+
+        for (int size : shipSizes) {
+            boolean placed = false;
+            while (!placed) {
+                boolean horizontal = rand.nextBoolean();
+                int maxRow = board.getSize() - (horizontal ? 0 : size);
+                int maxCol = board.getSize() - (horizontal ? size : 0);
+
+                int row = rand.nextInt(maxRow);
+                int col = rand.nextInt(maxCol);
+
+                // Se crea un barco asignándole el tamaño y el identificador del jugador
+                Ship ship = new Ship(size, player.getUsername());
+                // Verifica si se puede colocar el barco en la posición elegida
+                if (board.canPlaceShip(ship, row, col, horizontal)) {
+                    board.placeShip(ship, row, col, horizontal);
+                    placed = true;
+                }
             }
-            // Selecciona como objetivo al siguiente jugador activo
-            Player target = getNextActivePlayer(currentIndex);
-            if (target == null) break;
+        }
+    }
 
-            // Envía mensaje de turno al atacante, indicando un tiempo (por ejemplo, 30 segundos)
-            String turnMessage = Protocol.TURN_PREFIX + "30";
-            attacker.getOut().println(turnMessage);
+    /**
+     * Bucle principal del juego.
+     * Si commonBoard es distinto de null, estamos en modo free‑for‑all;
+     * en caso contrario, en modo 1 vs 1.
+     */
+    private void runGameLoop(Board commonBoard) {
+        int currentIndex = 0;
 
-            // Obtiene el ClientHandler correspondiente
+        while (activePlayers() > 1) {
+            while (!players.get(currentIndex).isActive()) {
+                currentIndex = (currentIndex + 1) % players.size();
+            }
+
+            if (activePlayers() <= 1) {
+                break;
+            }
+
+            Player attacker = players.get(currentIndex);
+            int currentBoardSize = (commonBoard != null) ? commonBoard.getSize() : attacker.getBoard().getSize();
+
+            attacker.getOut().println(Protocol.TURN_PREFIX + "30");
+            for (Player p : players) {
+                if (!p.equals(attacker) && p.isActive()) {
+                    p.getOut().println("Esperando al movimiento de " + attacker.getUsername() + "...");
+                }
+            }
+
             ClientHandler handler = getClientHandler(attacker);
             String shotMsg = handler.waitForShot(30);
             if (shotMsg == null) {
                 System.out.println(attacker.getUsername() + " no respondió a tiempo. Turno perdido.");
+                guiServer.onMessageReceived(attacker.getUsername() + " no respondió a tiempo. Turno perdido.");
                 currentIndex = (currentIndex + 1) % players.size();
                 continue;
             }
 
-            // Se espera que el mensaje tenga el formato: "#TIRO(F,C)#"
-            Coordinate shotCoord = parseShot(shotMsg, target.getBoard().getSize());
+            Coordinate shotCoord = parseShot(shotMsg, currentBoardSize);
             if (shotCoord == null) {
                 attacker.getOut().println("Tiro inválido.");
                 currentIndex = (currentIndex + 1) % players.size();
                 continue;
             }
 
-            // Procesa el tiro sobre el tablero del jugador objetivo
-            ShotResult result = target.getBoard().checkShot(shotCoord);
+            ShotResult result;
+            Player target = getNextActivePlayer(currentIndex);
+            if (target == null) break;
+
+            result = target.getBoard().checkShot(shotCoord);
+
             if (result.getResult() == ShotResultType.AGUA) {
                 attacker.getOut().println(Protocol.AGUA);
+                guiServer.onMessageReceived(attacker.getUsername() + " ha obtenido: AGUA");
             } else if (result.getResult() == ShotResultType.TOCADO) {
                 attacker.getOut().println(Protocol.TOCADO);
+                guiServer.onMessageReceived(attacker.getUsername() + " ha obtenido: TOCADO");
             } else if (result.getResult() == ShotResultType.HUNDIDO) {
                 attacker.getOut().println(Protocol.HUNDIDO);
-                // Notifica a todos el hundimiento del barco: "#BARCO,TAMAÑO,USUARIO#"
-                String sunkMsg = Protocol.BARCO + "," + result.getShipLength() + "," + target.getUsername() + Protocol.BOARD_SUFFIX;
-                broadcastMessage(sunkMsg);
+                guiServer.onMessageReceived(attacker.getUsername() + " ha obtenido: HUNDIDO");
+
+                Ship sunkShip = target.getBoard().getShipAt(shotCoord);
+                if (sunkShip != null) {
+                    String posMessage = buildSunkShipPositionMessage(sunkShip, players.size());
+                    broadcastMessage(posMessage);
+                }
+
+                System.out.println(target.getBoard().allShipsSunkForPlayer(target.getUsername()));
+                if (target.getBoard().allShipsSunkForPlayer(target.getUsername())) {
+                    target.setActive(false);
+                    broadcastMessage(Protocol.FIN + target.getUsername() + Protocol.BOARD_SUFFIX);
+
+                    if (activePlayers() == 1) {
+                        break;
+                    }
+                }
+
+                printBarcos(target);
+
+                for (Player p : players) {
+                    System.out.println("Jugador: " + p.getUsername() + " Activo: " + p.isActive());
+                }
             }
 
-            // Si el objetivo ha perdido todos sus barcos se le marca como eliminado y se notifica
-            if (target.getBoard().allShipsSunk()) {
-                target.setActive(false);
-                String finMsg = Protocol.FIN + target.getUsername() + Protocol.BOARD_SUFFIX;
-                broadcastMessage(finMsg);
-            }
+            guiServer.updateBoard(target.getBoard(), attacker.getBoard(), target.getUsername());
 
-            currentIndex = (currentIndex + 1) % players.size();
+            do {
+                currentIndex = (currentIndex + 1) % players.size();
+            } while (!players.get(currentIndex).isActive());
+
         }
 
-        // Cuando solo quede un jugador activo se notifica al ganador
         Player winner = null;
         for (Player p : players) {
             if (p.isActive()) {
@@ -188,11 +274,21 @@ public class GameServer {
                 break;
             }
         }
+
         if (winner != null) {
-            String winMsg = Protocol.GANADOR + winner.getUsername() + Protocol.BOARD_SUFFIX;
-            broadcastMessage(winMsg);
+            broadcastMessage(Protocol.GANADOR + winner.getUsername() + Protocol.BOARD_SUFFIX);
+            System.out.println("El ganador es: " + winner.getUsername());
+            guiServer.onMessageReceived("El ganador es: " + winner.getUsername());
         }
+
         System.out.println("Juego finalizado.");
+        guiServer.onMessageReceived("Juego finalizado.");
+    }
+    public void printBarcos(Player target) {
+        for (Ship ship : target.getBoard().getShips()) {
+            System.out.println("Barco de tamaño: " + ship.getLength() +
+                    " | Dueño: " + ship.getOwner());
+        }
     }
 
     private int activePlayers() {
@@ -201,6 +297,31 @@ public class GameServer {
             if (p.isActive()) count++;
         }
         return count;
+    }
+
+    private String buildSunkShipPositionMessage(Ship ship, int activePlayerCount) {
+        if (activePlayerCount >= 3) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(Protocol.POSITION_BARCO)
+                    .append(",")
+                    .append(ship.getLength())
+                    .append(",")
+                    .append(ship.getOwner())
+                    .append(Protocol.BOARD_SUFFIX);
+            for (Coordinate coord : ship.getCoordinates()) {
+                sb.append("(")
+                        .append(convertRowToLetter(coord.getRow()))
+                        .append(",")
+                        .append(coord.getCol() + 1)
+                        .append(")");
+            }
+            return sb.toString();
+        }
+        return "";
+    }
+
+    private String convertRowToLetter(int row) {
+        return Character.toString((char)('A' + row));
     }
 
     private Player getNextActivePlayer(int currentIndex) {
@@ -223,13 +344,15 @@ public class GameServer {
         return null;
     }
 
-    // Parsea el mensaje de tiro "#TIRO(F,C)#" y devuelve el objeto Coordinate
+    /**
+     * Parsea el mensaje de tiro con formato "#TIRO(F,C)#" y devuelve un objeto Coordinate.
+     */
     private Coordinate parseShot(String shotMsg, int boardSize) {
         try {
             int start = shotMsg.indexOf('(');
             int end = shotMsg.indexOf(')');
             if (start == -1 || end == -1) return null;
-            String content = shotMsg.substring(start+1, end);
+            String content = shotMsg.substring(start + 1, end);
             String[] parts = content.split(",");
             if (parts.length != 2) return null;
             char letter = parts[0].trim().charAt(0);
