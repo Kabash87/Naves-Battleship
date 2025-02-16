@@ -83,6 +83,7 @@ Al iniciar el cliente, se debe realizar el registro del jugador.
 
 ## Apariencia del tablero una vez registrado
 ![Dos clientes](img/Picture4.png)
+
 Visualización del registro de dos clientes (por ejemplo, Diego y Fran).  
 Una vez iniciado el juego, cada jugador tendrá un turno para jugar; si transcurren 30 segundos sin acción, el jugador pierde su turno.
 
@@ -90,18 +91,21 @@ Una vez iniciado el juego, cada jugador tendrá un turno para jugar; si transcur
 
 ## Partida en curso – Tableros 2 jugadores
 ![Servidor 2 clientes](img/Picture5.png)
+
 El servidor muestra los tableros de los jugadores en tiempo real, alternando según el turno de cada uno.
 
 ---
 
 ## Pantallazo tablero jugador Fran (Servidor)
 ![Tablero](img/Picture6.png)
+
 *Imagen del tablero del jugador Fran en la interfaz del servidor.*
 
 ---
 
 ## Pantallazo tablero jugador Diego (Servidor)
 ![Tablero](img/Picture7.png)
+
 *Imagen del tablero del jugador Diego en la interfaz del servidor.*
 
 ---
@@ -109,8 +113,9 @@ El servidor muestra los tableros de los jugadores en tiempo real, alternando seg
 ## Pruebas con varios jugadores (Modo Battle Royale)
 
 En la interfaz del servidor se pueden observar las tablas descubiertas de todos los jugadores y su estado actual. Aunque la interfaz es similar a la de los clientes, esta no puede intervenir en la partida, sino que únicamente muestra el estado en tiempo real.
-![Tablero](img/Picture8.png)
 *Pantallazo mostrando una partida en curso con varios jugadores.*
+
+![Tablero](img/Picture8.png)
 
 ---
 
@@ -118,6 +123,7 @@ En la interfaz del servidor se pueden observar las tablas descubiertas de todos 
 
 Dentro de la interfaz del cliente es posible habilitar el **modo oscuro**.
 ![Tablero](img/Picture9.png)
+
 *Pantallazo del modo oscuro activado.*
 
 ---
@@ -126,6 +132,7 @@ Dentro de la interfaz del cliente es posible habilitar el **modo oscuro**.
 
 Al finalizar una partida, se mostrará el mensaje de “¡Victoria!” en la interfaz del jugador que haya logrado hundir todos los barcos enemigos, mientras que los demás verán el mensaje “Derrota”. En este punto, la partida se bloqueará y no se podrán realizar más movimientos. Para iniciar una nueva partida, es necesario reiniciar el programa.
 ![Tablero](img/Picture10.png)
+
 *Pantallazo del fin de partida.*
 
 ---
