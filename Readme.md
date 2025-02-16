@@ -1,7 +1,3 @@
-Aquí tienes el contenido convertido a Markdown para que puedas usarlo en tu archivo README.md en GitHub:
-
----
-
 # (Documentación) Práctica TCP Hundir la Flota
 
 **Centro Educativo Salesianos “Las Naves”  
@@ -209,7 +205,3 @@ java -cp bin server.ServerMain
 ```bash
 java -cp bin client.ClientMain
 ```
-
----
-
-*Fin de la documentación.*
